@@ -1,5 +1,5 @@
 .venv/
 .env/
 __pycache__/
-Raw_data_Reddit/
-Raw_data_Youtube/
+Raw_Data_Youtube/
+Raw_Data_Reddit/
