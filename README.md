@@ -71,5 +71,4 @@ flags = {
 
 ## Output
 
-- **YouTube**: CSV file in `Raw_data_Youtube/` directory
-- **Reddit**: JSON file in `Raw_Data_Reddit/` directory
+- **fftext_data.csv**: CSV file in `Data_MLReady/` directory
