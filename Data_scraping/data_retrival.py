@@ -1,3 +1,4 @@
+
 # yt_data.py
 # This script retrieves YouTube video data using the YouTube Data API v3.
 """
@@ -31,22 +32,14 @@ import time
 import requests
 import requests.auth 
 import  pandas as pd
+from typing import List
 from dotenv import load_dotenv
-from typing import List, Optional
 from datetime import datetime, timezone
 
 
-def get_top_videos(topic: str, api_key: Optional[str] = None) -> List[str]:
+def get_top_videos(topic: str, api_key: str, max_results: int) -> List[str]:
     """
     Queries the YouTube Data API to retrieve up to `n_res` video IDs related to the given `topic`.
-
-    Args:
-        topic (str): Search keyword or topic to look up on YouTube.
-        max_res (int): Number of desired video results (API limit to 50).
-        api_key (str, optional): YouTube Data API key.
-
-    Returns:
-        List[str]: A list of YouTube video IDs related to the topic.
     """
     search_url = "https://www.googleapis.com/youtube/v3/search"
     videos: List[str] = []        
@@ -55,7 +48,7 @@ def get_top_videos(topic: str, api_key: Optional[str] = None) -> List[str]:
         "part": "snippet",
         "q": topic,
         "type": "video",
-        "maxResults": 50,  # API limit
+        "maxResults": max_results,  # API limit
         "order": "Relevance",
         "key": api_key,
     }
@@ -67,24 +60,16 @@ def get_top_videos(topic: str, api_key: Optional[str] = None) -> List[str]:
     return videos 
 
 
-def get_all_comments(video_id: str, api_key: str) -> List[dict[str, str]]:
+def get_all_comments(video_id: str, api_key: str, max_resutls: int) -> List[dict[str, str]]:
     """
     Retrieves all comments for a given YouTube video ID using the YouTube Data API v3.
-
-    Args:
-        video_id (str): The YouTube video ID to retrieve comments for.
-        api_key (str): A valid YouTube Data API key.
-
-    Returns:
-        List[Dict[str, str]]: A list of dictionaries containing comment details such as author,
-                              text, and publication date.
     """
     comments = []
     url = "https://www.googleapis.com/youtube/v3/commentThreads"
     params = {
         "part": "snippet",
         "videoId": video_id,
-        "maxResults": 100,
+        "maxResults": max_resutls,  # API limit
         "textFormat": "plainText",
         "key": api_key
     }
@@ -135,27 +120,20 @@ def merge_all_data(dfs: list[pd.DataFrame]) -> None:
         print(f"An error occurred while merging data: {e}")
 
     
-def run_youtube(api_key: str, topics: list[str]) -> None:
+def run_youtube(api_key: str, topics: list[str], config: dict[str, int]) -> None:
     """
     Retrieves comments from the top YouTube videos related to a given topic,
     and saves them into a CSV file in the specified directory.
-
-    Args:
-        youtube_dir (str): The directory path where the output CSV will be saved.
-        api_key (str): A valid YouTube Data API key.
-
-    Returns:
-        None
     """
     list_of_dfs = []
     for topic in topics:
         # Example topic and max results 
-        videos_ids = get_top_videos(topic, api_key)
+        videos_ids = get_top_videos(topic, api_key, config["max_results_video"])
         comments = list()
         for video_id in videos_ids:
             print(f"Retrieving comments for video ID: {video_id}")
             # Retrieve comments for each video ID
-            video_comments = get_all_comments(video_id, api_key)
+            video_comments = get_all_comments(video_id, api_key, config["max_results_comments"])
             comments.extend(video_comment for video_comment in video_comments)
         
         # Save videos comments to CSV
@@ -166,48 +144,9 @@ def run_youtube(api_key: str, topics: list[str]) -> None:
     merge_all_data(list_of_dfs)
 
 
-def save_reddit_comments(comments: list[dict[str, str]]) -> None:
-    """ Save Reddit comments to a CSV file."""
-    # Fixed variables
-    db_dir_name = "Data_MLReady"
-    os.makedirs(db_dir_name, exist_ok=True)
-    ffname = "fftext_data.csv"
-    ffpath = os.path.join(db_dir_name, ffname)
-    curr_df_comms = pd.DataFrame(comments)
-    if os.path.exists(ffpath):
-        origin_df = pd.read_csv(ffpath)
-        origin_df = pd.concat([origin_df, curr_df_comms], ignore_index=True)
-        origin_df.to_csv(ffpath, index=False)
-    else:
-        curr_df_comms.to_csv(ffpath, index=False)
-    print("Table correctly updated.")
-
-
-def csv_format_migration(all_data: list[dict[str, str]]) -> list[dict[str, str]]:
-    """Return the comments of one Subreddit"""
-    extracted_comments = list()
-    for post in all_data:
-        for comment in post.get("comments"):
-            # i-th dict
-            curr_row = dict()
-            curr_row["author"] = comment.get("author", "")
-            curr_row["text"] = comment.get("body", "")
-            curr_row["published_at"] = comment.get("created_utc", "")
-            extracted_comments.append(curr_row)
-    return extracted_comments
-    
-
 def extract_reddit_comments(children: List[dict], min_score: int = 5) -> List[dict]:
     """
     Extracts posts from Reddit that have comments with a score above a specified threshold.
-
-    Args:
-        posts (List[dict]): List of Reddit posts.
-        min_score (int): Minimum score for comments to be included -> number of interactions
-                         with the comment.
-
-    Returns:
-        List[dict]: Filtered list of posts with comments meeting the score criteria.
     """
     results = []
     for child in children:
@@ -234,6 +173,37 @@ def extract_reddit_comments(children: List[dict], min_score: int = 5) -> List[di
     return results
 
 
+def csv_format_migration(all_data: list[dict[str, str]]) -> list[dict[str, str]]:
+    """Return the comments of one Subreddit"""
+    extracted_comments = list()
+    for post in all_data:
+        for comment in post.get("comments"):
+            # i-th dict
+            curr_row = dict()
+            curr_row["author"] = comment.get("author", "")
+            curr_row["text"] = comment.get("body", "")
+            curr_row["published_at"] = comment.get("created_utc", "")
+            extracted_comments.append(curr_row)
+    return extracted_comments
+
+
+def save_reddit_comments(comments: list[dict[str, str]]) -> None:
+    """ Save Reddit comments to a CSV file."""
+    # Fixed variables
+    db_dir_name = "Data_MLReady"
+    os.makedirs(db_dir_name, exist_ok=True)
+    ffname = "fftext_data.csv"
+    ffpath = os.path.join(db_dir_name, ffname)
+    curr_df_comms = pd.DataFrame(comments)
+    if os.path.exists(ffpath):
+        origin_df = pd.read_csv(ffpath)
+        origin_df = pd.concat([origin_df, curr_df_comms], ignore_index=True)
+        origin_df.to_csv(ffpath, index=False)
+    else:
+        curr_df_comms.to_csv(ffpath, index=False)
+    print("Table correctly updated.")
+
+
 def run_reddit(
         client_id: str, 
         client_secret: str, 
@@ -241,26 +211,17 @@ def run_reddit(
         password: str, 
         user_agent: str,
         subreddits: list[str],
-        queries: list[str]
+        queries: list[str],
+        config: dict[str, int]
 ) -> None:
     """
     Retrieves posts from Reddit related to a given topic and saves them into a CSV file.
-
-    Args:
-        client_id (str): Reddit API client ID.
-        client_secret (str): Reddit API client secret.
-        username (str): Reddit username.
-        password (str): Reddit password.
-        user_agent (str): User agent for the Reddit API.
-
-    Returns:
-        None
     """
     for subreddit in subreddits:
         for query in queries:
 
-            limit = 3000  # Set max number of posts to retrieve
-            comment_score_min = 5   # Score threshold
+            limit = config['limit']  # Set max number of posts to retrieve
+            comment_score_min = config['comment_score_min']   # Score threshold
 
             # Authenticate with Reddit API
             auth = requests.auth.HTTPBasicAuth(client_id, client_secret)
@@ -292,12 +253,7 @@ def run_reddit(
             for post in posts:
                 post_data = post.get('data', {})
                 post_id = post_data.get('id')
-                title = post_data.get('title')
-                selftext = post_data.get('selftext')
-                score = post_data.get('score')
-                author = post_data.get('author')
                 created_utc = datetime.fromtimestamp(post_data.get('created_utc', 0)).isoformat()
-                num_comments = post_data.get('num_comments')
 
                 # Fetch comments for the post
                 comments_url = f'https://oauth.reddit.com/comments/{post_id}'
@@ -309,17 +265,12 @@ def run_reddit(
 
                 post_record = {
                         'post_id': post_id,
-                        'title': title,
-                        'selftext': selftext,
-                        'score': score,
-                        'author': author,
                         'created_utc': created_utc,
-                        'num_comments': num_comments,
                         'comments': high_comments  # Store comments with score above threshold
                 }
 
                 all_data.append(post_record)
-                print(f"Processed post: {title} (ID: {post_id}) with {len(high_comments)} comments above score {comment_score_min}")
+                print(f"(ID: {post_id}) with {len(high_comments)} comments above score {comment_score_min}")
                 time.sleep(0.1)
 
             curr_list_of_comments = csv_format_migration(all_data)
@@ -327,7 +278,8 @@ def run_reddit(
 
             
 def main():
-    # Video labels to search for
+    # Video labels to search for (youtube)
+    # These are the topics that will be used to search for videos and comments
     topics = [
         "Crime against humanity", 
         "War crimes", 
@@ -361,6 +313,19 @@ def main():
         'REDDIT' : True
     }
 
+    # Data Scraping Configuration
+    scraping_config = {
+        'YT': {
+            'max_results_video': 50,  # Max results per topic (limit at 50 by YouTube API)
+            'max_results_comments': 100  # Max comments per video (limit at 100 by YouTube API)
+        },
+
+        'REDDIT': {
+            'limit': 1000,  # Max posts to retrieve
+            'comment_score_min': 5  # Minimum score for comments to be included
+        }
+    }
+
     # Load environment variables
     load_dotenv()
 
@@ -384,7 +349,7 @@ def main():
         if flags['YT']:
             # Start YouTube data retrieval
             print("Starting YouTube data retrieval...")
-            run_youtube(API_KEY, topics)
+            run_youtube(API_KEY, topics, scraping_config['YT'])
             print("YouTube data retrieval complete.")
         else:
             print("YouTube data retrieval is disabled. Skipping...")
@@ -392,7 +357,16 @@ def main():
         if flags['REDDIT']:
             # Start Reddit data retrieval
             print("Starting Reddit data retrieval...")
-            run_reddit(client_id, client_secret, username, password, user_agent, subreddits, queries)
+            run_reddit(
+                client_id, 
+                client_secret, 
+                username, 
+                password, 
+                user_agent, 
+                subreddits, 
+                queries, 
+                scraping_config['REDDIT']
+            )
             print("Reddit data retrieval complete.")
         else:
             print("Reddit data retrieval is disabled. Skipping...")
